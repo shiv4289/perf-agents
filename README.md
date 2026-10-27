@@ -3,6 +3,7 @@
 **Agents that performance-test LLM inference servers by themselves.**
 
 [![tests](https://github.com/shiv4289/perf-agents/actions/workflows/ci.yml/badge.svg)](https://github.com/shiv4289/perf-agents/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 You give it a goal, for example "highest throughput under a 500 ms p99 TTFT SLO, at
 most 8 deploys". A planner agent picks serving configs to try, specialist agents deploy
@@ -69,3 +70,7 @@ make smoke    # full pipeline with a scripted fake LLM
 cd managed-agents
 # follow managed-agents/README.md (needs ANTHROPIC_API_KEY)
 ```
+
+## License
+
+[MIT](LICENSE) © 2026 Shivji Jha
