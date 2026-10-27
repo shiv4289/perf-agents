@@ -1,0 +1,27 @@
+# Tiny eval suite for `make smoke`: both scenarios, fast sweeps, fake model everywhere.
+# Checks the whole pipeline (agents, tools, guardrails, oracle, scoring, leaderboard)
+# without any real LLM. Run:  make smoke
+[settings]
+repeats = 1
+
+[settings.sweep]
+duration_s = 1
+
+[[scenarios]]
+name        = "max-throughput"
+slo_ttft_ms = 500
+budget      = 8
+objective   = "throughput"
+
+[[scenarios]]
+name        = "per-gpu-tight-budget"
+slo_ttft_ms = 300
+budget      = 3                 # smaller than the fake's 4-config plan: tests the budget guardrail
+objective   = "throughput_per_gpu"
+
+[[candidates]]
+name     = "fake"
+planner  = "fake"
+executor = "fake"
+observer = "fake"
+analyst  = "fake"

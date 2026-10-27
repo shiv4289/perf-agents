@@ -1,0 +1,59 @@
+# =============================================================================
+# suite.toml — which model line-ups to compare, on which scenarios
+# =============================================================================
+#
+# Every scenario is run with every candidate, `repeats` times each.
+# Run:  python3 -m perfagents eval            (add --judge to grade report.md)
+#
+# Cost rule of thumb: each run deploys up to `budget` configs and sweeps each
+# one, so a run takes a few minutes. 2 scenarios × 4 candidates × 2 repeats
+# = 16 runs.
+# =============================================================================
+
+[settings]
+repeats = 2
+
+# Shorter sweep than normal runs, so evals finish faster. Overrides target.toml [sweep].
+[settings.sweep]
+duration_s = 4
+
+# --- Scenarios: what the team is asked to find --------------------------------
+# objective: "throughput" or "throughput_per_gpu"
+
+[[scenarios]]
+name        = "max-throughput"
+slo_ttft_ms = 500
+budget      = 8
+objective   = "throughput"
+
+[[scenarios]]
+name        = "per-gpu-tight-budget"     # harder: fewer runs, and more GPUs isn't automatically better
+slo_ttft_ms = 300
+budget      = 5
+objective   = "throughput_per_gpu"
+
+# --- Candidates: model line-ups ------------------------------------------------
+# Only list the roles you want to change; the rest come from config/roles.toml.
+
+[[candidates]]
+name = "suggested"                       # roles.toml defaults: Beam plans, Nemotron does the work
+
+[[candidates]]
+name    = "muse-planner"
+planner = "muse-spark"
+
+[[candidates]]
+name     = "all-lightning"               # cheapest possible: is a small planner good enough?
+planner  = "nemotron-lightning"
+analyst  = "nemotron-lightning"
+
+[[candidates]]
+name     = "beam-everywhere"             # strongest everywhere: is the bigger bill worth it?
+executor = "beam"
+observer = "beam"
+analyst  = "beam"
+
+# Uncomment after enabling claude-opus in models.toml, to compare against Claude.
+# [[candidates]]
+# name    = "claude-planner"
+# planner = "claude-opus"

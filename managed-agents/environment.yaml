@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://platform.claude.com/schemas/ant/beta/environment.json
+name: perf-agents-env
+config:
+  type: cloud
+  networking:
+    type: limited
+    allow_package_managers: true

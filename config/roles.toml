@@ -1,0 +1,51 @@
+# =============================================================================
+# roles.toml — which model each agent uses by default, and what it may do
+# =============================================================================
+#
+# The team (same architecture as the Managed Agents version):
+#
+#   planner ──delegate──► executor   deploys a config, runs the load sweep
+#      │                  observer   checks the raw numbers, flags bad data
+#      └──────────────►   analyst    knee, frontier, convergence, final report
+#
+# Override any role at run time without editing this file:
+#   python3 -m perfagents run --model planner=muse-spark --model analyst=beam
+#
+# Fields:
+#   model      a name from models.toml
+#   prompt     system prompt file under prompts/
+#   tools      tool names from perfagents/tools.py (the role can use ONLY these)
+#   max_turns  hard cap on LLM calls for one task, so a confused model can't loop forever
+# =============================================================================
+
+[roles.planner]
+model     = "beam"
+prompt    = "planner.md"
+tools     = ["delegate", "read_file", "write_file", "list_files"]
+max_turns = 40
+
+[roles.executor]
+model     = "nemotron-lightning"
+prompt    = "executor.md"
+tools     = ["deploy_config", "run_load_sweep", "snapshot_metrics"]
+max_turns = 8
+
+[roles.observer]
+model     = "nemotron-lightning"
+prompt    = "observer.md"
+tools     = ["read_file", "list_files", "run_python", "write_file"]
+max_turns = 10
+
+[roles.analyst]
+model     = "nemotron-super"
+prompt    = "analyst.md"
+tools     = ["read_file", "list_files", "run_python", "write_file"]
+max_turns = 15
+
+# Used only by evals (--judge): grades report.md against the raw results.
+# Deliberately a different model from the planner so the work doesn't grade itself.
+[roles.judge]
+model     = "muse-spark"
+prompt    = "judge.md"
+tools     = []
+max_turns = 1

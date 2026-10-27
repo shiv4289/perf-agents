@@ -1,0 +1,39 @@
+# =============================================================================
+# target.toml — the inference server being performance-tested
+# =============================================================================
+#
+# This is the system UNDER TEST, not the models that run the agents.
+#
+# type = "mock"     Starts bench/mock_server.py on a free port for each run.
+#                   No GPUs needed. Has a realistic saturation knee and OOMs.
+#
+# type = "command"  A real endpoint (e.g. an NAI vLLM deployment). Deploying a
+#                   config runs `deploy_command` through the shell, then waits
+#                   until `ready_url` answers 200.
+# =============================================================================
+
+type = "mock"
+
+# The search space the agents may explore. Code enforces it: the executor's
+# deploy tool rejects anything outside these lists.
+[search_space]
+tp        = [1, 2, 4, 8]          # tensor-parallel size = GPUs per replica
+max_batch = [32, 64, 128, 256]    # vLLM --max-num-seqs
+
+# Load sweep used for every config.
+[sweep]
+levels     = "16,32,64,128,192"   # concurrency levels, comma-separated
+duration_s = 6                    # measured seconds per level (after warmup)
+warmup_s   = 1
+max_tokens = 64                   # output tokens per request
+
+# ---- Only used when type = "command" ----------------------------------------
+[command]
+url            = "https://my-endpoint.nai.local"   # base URL; loadgen calls {url}/v1/completions
+model          = "llama-3-70b"                     # model name sent in the load requests
+api_key_env    = "NAI_API_KEY"
+# {tp} and {max_batch} are filled in. Example for a vLLM Deployment on Kubernetes:
+deploy_command = "./scripts/deploy_vllm.sh --tp {tp} --max-num-seqs {max_batch}"
+ready_url      = "https://my-endpoint.nai.local/health"
+ready_timeout_s = 900
+metrics_url    = "https://my-endpoint.nai.local/metrics"

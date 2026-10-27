@@ -1,0 +1,27 @@
+# Runs on every push and PR: unit tests, then the full pipeline with the scripted fake LLM.
+# No GPUs, models or secrets needed.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests (scoring math + guardrails)
+        run: make test
+      - name: Smoke test (agents + tools + oracle + evals, fake LLM)
+        run: make smoke
+      - name: Upload smoke leaderboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-leaderboard
+          path: evals/results/

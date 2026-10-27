@@ -1,0 +1,5 @@
+__pycache__/
+runs/
+evals/results/
+evals/oracles/
+.fake_llm.pid
