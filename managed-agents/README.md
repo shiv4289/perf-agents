@@ -1,8 +1,10 @@
-# Agentic perf testing on Claude Managed Agents
+# perf-agents / managed-agents: agents on Claude Managed Agents
 
-> One of two versions in [perf-agents](../README.md). This one runs the agents on **Claude Managed Agents**. For your own model endpoints and evals, see the [root README](../README.md).
+> 📍 You are in **`managed-agents/`**: the agents run on **Claude Managed Agents**
+> (Anthropic-hosted models, harness and sandbox). Want your own models, or evals?
+> See [`../local/`](../local/). Repo overview: [`../README.md`](../README.md).
 
-> One of two versions in [perf-agents](../README.md). This one runs the agents on **Claude Managed Agents**. For your own model endpoints and evals, see the [root README](../README.md).
+All commands below are run from **this folder** (`cd managed-agents`).
 
 A planner agent runs a closed-loop performance search over inference serving
 configs. It delegates to three specialists and stops when the frontier converges
@@ -35,7 +37,7 @@ brew install anthropics/tap/ant      # or the Linux release binary
 pip install anthropic
 export ANTHROPIC_API_KEY=...
 
-cd perf-agents
+cd managed-agents
 ant apply agents/perf-lead.md agents/executor.md agents/observer.md agents/analyst.md environment.yaml
 export PERF_LEAD_AGENT_ID=agent_...  PERF_ENV_ID=env_...   # IDs printed by ant apply
 

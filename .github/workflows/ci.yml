@@ -8,8 +8,12 @@ on:
 
 jobs:
   test:
+    name: local/ tests
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: local      # CI covers the local version; managed-agents needs an API key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -24,4 +28,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: smoke-leaderboard
-          path: evals/results/
+          path: local/evals/results/
