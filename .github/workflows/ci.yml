@@ -1,5 +1,6 @@
-# Runs on every push and PR: unit tests, then the full pipeline with the scripted fake LLM.
-# No GPUs, models or secrets needed.
+# Runs on every push and PR. No GPUs, models or secrets needed.
+#   test:  unit tests, then the full pipeline with the scripted fake LLM (builtin load generator)
+#   mlperf-endpoints:  installs MLCommons MLPerf Endpoints and runs the agents measuring with it
 name: tests
 
 on:
@@ -19,7 +20,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Unit tests (scoring math + guardrails)
+      - name: Unit tests (scoring math, guardrails, MLPerf adapter)
         run: make test
       - name: Smoke test (agents + tools + oracle + evals, fake LLM)
         run: make smoke
@@ -29,3 +30,28 @@ jobs:
         with:
           name: smoke-leaderboard
           path: local/evals/results/
+
+  mlperf-endpoints:
+    name: local/ with MLPerf Endpoints
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: local
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install MLPerf Endpoints (pinned commit)
+        run: make mlperf-setup
+      - name: One sweep on the mock
+        run: make mlperf-check
+      - name: Agents measuring with MLPerf Endpoints (fake LLM)
+        run: make smoke-mlperf
+      - name: Upload run folder (includes raw MLPerf reports)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mlperf-smoke-run
+          path: local/runs/

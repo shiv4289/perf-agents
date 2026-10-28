@@ -21,7 +21,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .config import ROOT, Scenario
+from .config import Scenario
+from .sweep import SweepError, run_sweep
 
 MAX_TOOL_OUTPUT = 6000          # characters; long outputs are cut so context stays small
 CONFIG_NAME = re.compile(r"^tp(\d+)_bs(\d+)$")
@@ -140,20 +141,12 @@ def run_load_sweep(ctx, config_name: str) -> str:
         raise ToolError(f"{config_name!r} is not the deployed config (deployed: {ctx.deployed}). "
                         "Deploy it first.")
     out_dir = ctx.workspace / "results" / config_name
-    s = ctx.sweep
-    cmd = [sys.executable, str(ROOT / "bench" / "loadgen.py"),
-           "--url", ctx.target.url, "--model", ctx.target.model,
-           "--levels", s["levels"], "--duration", str(s["duration_s"]),
-           "--warmup", str(s["warmup_s"]), "--max-tokens", str(s["max_tokens"]),
-           "--slo-ttft-ms", str(ctx.scenario.slo_ttft_ms), "--out", str(out_dir)]
-    if ctx.target.api_key_env:
-        cmd += ["--api-key-env", ctx.target.api_key_env]
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
-    if proc.returncode != 0:
-        raise ToolError(f"load sweep failed: {proc.stderr[-1500:]}")
-    lines = proc.stdout.strip().splitlines()
+    try:     # builtin loadgen or MLPerf Endpoints, per target.toml [sweep] loadgen
+        last = run_sweep(ctx.target, ctx.sweep, ctx.scenario.slo_ttft_ms, out_dir)
+    except SweepError as e:
+        raise ToolError(str(e))
     return (f"Results written to results/{config_name}/ (summary.json, requests.csv).\n"
-            f"Highest level: {lines[-1] if lines else '(no output)'}")
+            f"Highest level: {last}")
 
 
 def snapshot_metrics(ctx, config_name: str) -> str:

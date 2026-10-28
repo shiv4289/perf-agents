@@ -52,6 +52,10 @@ def latency_model(tp: int, max_batch: int, active: int):
 
 
 class Handler(BaseHTTPRequestHandler):
+    # HTTP/1.1 keep-alive with chunked streams, like vLLM. High-performance clients
+    # (MLCommons inference-endpoint) pool connections and stall if every response closes.
+    protocol_version = "HTTP/1.1"
+
     def log_message(self, *args):
         pass
 
@@ -101,33 +105,49 @@ class Handler(BaseHTTPRequestHandler):
             time.sleep(1.0)
             return self._json(200, {"deployed": {"tp": tp, "max_batch": mb}})
 
-        if self.path == "/v1/completions":
+        if self.path == "/v1/completions":           # used by bench/loadgen.py
             req = self._body()
-            max_tokens = int(req.get("max_tokens", 64))
-            with LOCK:
-                STATE["active"] += 1
-                active, tp, mb = STATE["active"], STATE["tp"], STATE["max_batch"]
-            try:
-                ttft, itl = latency_model(tp, mb, active)
-                self.send_response(200)
-                self.send_header("Content-Type", "text/event-stream")
-                self.end_headers()
-                time.sleep(ttft / 1000)
-                for i in range(max_tokens):
-                    chunk = {"choices": [{"text": f" t{i}", "index": 0}]}
-                    self.wfile.write(f"data: {json.dumps(chunk)}\n\n".encode())
-                    self.wfile.flush()
-                    time.sleep(itl / 1000)
-                self.wfile.write(b"data: [DONE]\n\n")
-                self.wfile.flush()
-            except (BrokenPipeError, ConnectionResetError):
-                pass
-            finally:
-                with LOCK:
-                    STATE["active"] -= 1
-                    STATE["served"] += 1
-            return
+            return self._stream(int(req.get("max_tokens", 64)),
+                                lambda i: {"choices": [{"text": f" t{i}", "index": 0}]})
+
+        if self.path == "/v1/chat/completions":      # used by MLCommons inference-endpoint
+            req = self._body()
+            n = int(req.get("max_completion_tokens") or req.get("max_tokens") or 64)
+            return self._stream(n, lambda i: {
+                "id": "mock", "object": "chat.completion.chunk", "model": req.get("model", "mock"),
+                "choices": [{"index": 0, "finish_reason": "length" if i == n - 1 else None,
+                             "delta": ({"role": "assistant"} if i == 0 else {}) | {"content": f" t{i}"}}]})
         self._json(404, {"error": "not found"})
+
+    def _chunk(self, data: bytes):
+        self.wfile.write(f"{len(data):x}\r\n".encode() + data + b"\r\n")
+        self.wfile.flush()
+
+    def _stream(self, max_tokens, make_chunk):
+        """Stream `max_tokens` SSE chunks with the latency the current config and load imply."""
+        with LOCK:
+            STATE["active"] += 1
+            active, tp, mb = STATE["active"], STATE["tp"], STATE["max_batch"]
+        try:
+            ttft, itl = latency_model(tp, mb, active)
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.send_header("Transfer-Encoding", "chunked")
+            self.end_headers()
+            time.sleep(ttft / 1000)
+            for i in range(max_tokens):
+                self._chunk(f"data: {json.dumps(make_chunk(i))}\n\n".encode())
+                time.sleep(itl / 1000)
+            self._chunk(b"data: [DONE]\n\n")
+            self.wfile.write(b"0\r\n\r\n")          # end of chunked body; connection stays open
+            self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError):
+            pass        # client gave up; nothing to clean up beyond the counters below
+        finally:
+            with LOCK:
+                STATE["active"] -= 1
+                STATE["served"] += 1
 
 
 class Server(ThreadingHTTPServer):

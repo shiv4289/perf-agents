@@ -55,8 +55,20 @@ def load_models() -> dict[str, ModelSpec]:
     return {name: ModelSpec(name=name, **fields) for name, fields in raw.items()}
 
 
-def load_target() -> dict:
-    return _read_toml(CONFIG_DIR / "target.toml")
+def load_target(loadgen: str | None = None) -> dict:
+    """target.toml, optionally with the sweep backend overridden (--loadgen)."""
+    cfg = _read_toml(CONFIG_DIR / "target.toml")
+    if loadgen:
+        cfg["sweep"]["loadgen"] = loadgen
+    return cfg
+
+
+def merge_sweep(base: dict, override: dict) -> dict:
+    """Overlay a partial [sweep] table (e.g. from an eval suite), one level deep."""
+    out = {**base}
+    for k, v in override.items():
+        out[k] = {**base.get(k, {}), **v} if isinstance(v, dict) else v
+    return out
 
 
 def parse_overrides(pairs: list[str] | None) -> dict[str, str]:

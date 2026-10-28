@@ -22,10 +22,25 @@ max_batch = [32, 64, 128, 256]    # vLLM --max-num-seqs
 
 # Load sweep used for every config.
 [sweep]
+# Which load generator measures each config:
+#   "builtin"           bench/loadgen.py: stdlib only, starts instantly, fine for CI and quick tries
+#   "mlperf-endpoints"  MLCommons MLPerf Endpoints client: the industry-standard measurement
+#                       (real datasets, MLPerf early-stopping p99). Install: make mlperf-setup
+# Both write the same files, so nothing else changes. Override per run: --loadgen mlperf-endpoints
+loadgen    = "builtin"
 levels     = "16,32,64,128,192"   # concurrency levels, comma-separated
 duration_s = 6                    # measured seconds per level (after warmup)
-warmup_s   = 1
-max_tokens = 64                   # output tokens per request
+warmup_s   = 1                    # builtin only; MLPerf Endpoints handles its own
+max_tokens = 64                   # output tokens per request (fixed, so configs compare fairly)
+
+# Only used when loadgen = "mlperf-endpoints".
+[sweep.mlperf_endpoints]
+command    = ""                                    # "" = ./.venv-mlperf (make mlperf-setup), then PATH
+dataset    = "bench/datasets/mixed_prompts.jsonl"  # JSONL with a "prompt" field; swap in your real traffic
+tokenizer  = ""          # HF repo id or local path. "" = the mock's tokenizer, or the target model's name
+api_type   = "openai"    # openai (/v1/chat/completions), openai-completions, or sglang
+workers    = -1          # client worker processes; -1 = auto. Use 1-2 on small VMs
+extra_args = []          # any other inference-endpoint flags, e.g. ["--no-early-stopping"]
 
 # ---- Only used when type = "command" ----------------------------------------
 [command]

@@ -13,12 +13,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
 from .config import ROOT
+from .sweep import run_sweep
 from .target import make_target
 
 ORACLE_DIR = ROOT / "evals" / "oracles"     # one cached file per sweep/search-space setup
@@ -52,13 +51,8 @@ def build_oracle(target_cfg: dict, rebuild: bool = False, verbose: bool = True) 
                         print(f"  oracle {name}: deploy failed")
                     continue
                 out = Path(tmp) / name
-                cmd = [sys.executable, str(ROOT / "bench" / "loadgen.py"), "--url", target.url,
-                       "--model", target.model, "--levels", sweep["levels"],
-                       "--duration", str(sweep["duration_s"]), "--warmup", str(sweep["warmup_s"]),
-                       "--max-tokens", str(sweep["max_tokens"]), "--out", str(out)]
-                if target.api_key_env:
-                    cmd += ["--api-key-env", target.api_key_env]
-                subprocess.run(cmd, check=True, capture_output=True)
+                # Same backend the agents use (builtin or MLPerf Endpoints), so scores are comparable.
+                run_sweep(target, sweep, slo_ttft_ms=1e9, out_dir=out)
                 levels = json.loads((out / "summary.json").read_text())["levels"]
                 configs[name] = {"tp": tp, "max_batch": bs, "status": "ok", "levels": levels}
                 if verbose:

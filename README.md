@@ -30,6 +30,7 @@ They don't share code, so you only need the one you choose.
 | **Agent loop** | small Python loop included in the repo (~60 lines) | Anthropic's managed harness and cloud sandbox |
 | **Evals / leaderboard** | ✅ compare model line-ups against a brute-force answer key | ❌ |
 | **Guardrails** | enforced in code (budget, search space, workspace) | stated in the prompts |
+| **Load generator** | built-in, or **MLCommons MLPerf Endpoints** (one-line switch) | built-in |
 | **Data stays on-prem** | ✅ yes, everything runs on your machines | ❌ prompts and reasoning go to Anthropic |
 | **Needs** | Python 3.11+, your endpoints (or the bundled fake LLM) | an Anthropic API key and the `ant` CLI |
 | **Best for** | private or on-prem models, comparing models, CI | the quickest demo on Claude |
@@ -46,7 +47,7 @@ perf-agents/
 │   ├── config/            models.toml (endpoints), roles.toml (who uses what), target.toml
 │   ├── prompts/           one system prompt per agent
 │   ├── perfagents/        the code: agent loop, tools, team, evals
-│   ├── bench/             mock inference server + load generator
+│   ├── bench/             mock inference server, load generator, MLPerf dataset
 │   ├── evals/             suite.toml: which model line-ups to compare
 │   └── tests/             unit tests, fake LLM, smoke suite
 ├── managed-agents/     ← version 2: Claude Managed Agents

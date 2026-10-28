@@ -29,7 +29,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import llm
-from .config import ROOT, Scenario, load_roles, load_target
+from .config import ROOT, Scenario, load_roles, load_target, merge_sweep
 from .oracle import best_config, build_oracle, score_config
 from .team import run_perf_test
 
@@ -184,13 +184,17 @@ def write_leaderboard(rows: list[dict], path: Path, judge: bool):
 # --------------------------------------------------------------- main entry
 
 def run_suite(only: list[str] | None = None, repeats: int | None = None,
-              judge: bool = False, judge_model: str | None = None, verbose: bool = False) -> Path:
+              judge: bool = False, judge_model: str | None = None, verbose: bool = False,
+              loadgen: str | None = None) -> Path:
     suite = tomllib.loads(SUITE_PATH.read_text())
     settings = suite.get("settings", {})
     repeats = repeats or int(settings.get("repeats", 1))
     target_cfg = load_target()
     if "sweep" in settings:                      # evals can use a shorter sweep than normal runs
-        target_cfg["sweep"] = {**target_cfg["sweep"], **settings["sweep"]}
+        target_cfg["sweep"] = merge_sweep(target_cfg["sweep"], settings["sweep"])
+    if loadgen:                                  # --loadgen beats both target.toml and the suite
+        target_cfg["sweep"]["loadgen"] = loadgen
+    print(f"Load generator: {target_cfg['sweep'].get('loadgen', 'builtin')}")
 
     candidates = suite["candidates"]
     if only:

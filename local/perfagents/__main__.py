@@ -2,6 +2,7 @@
 
 Commands:
   check-models   ping each endpoint and verify it returns real tool calls
+  check-loadgen  one short sweep on the mock, to verify a load generator works
   run            run one perf test with the configured (or overridden) models
   oracle         build the brute-force answer key used by evals
   eval           compare model line-ups from evals/suite.toml
@@ -10,12 +11,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
 import time
 from pathlib import Path
 
 from . import evals, llm
 from .config import Scenario, load_models, load_roles, load_target, parse_overrides
 from .oracle import build_oracle
+from .sweep import BACKENDS, SweepError, run_sweep
+from .target import MockTarget
 from .team import run_perf_test
 
 
@@ -77,16 +81,34 @@ def cmd_run(args):
     roles = load_roles(overrides)
     scenario = Scenario(name="cli", slo_ttft_ms=args.slo_ttft_ms, budget=args.budget,
                         objective=args.objective)
-    target_cfg = load_target()
+    target_cfg = load_target(args.loadgen)
     if args.duration:                           # shorter sweeps for quick tries
         target_cfg["sweep"]["duration_s"] = args.duration
+    if args.levels:
+        target_cfg["sweep"]["levels"] = args.levels
     meta = run_perf_test(roles, scenario, target_cfg,
                          runs_dir=Path(args.runs_dir) if args.runs_dir else None)
     print("\nPlanner summary:\n" + meta["planner_final"])
 
 
+def cmd_check_loadgen(args):
+    """Deploy one config on the mock and run a tiny sweep, to prove the load generator works here."""
+    cfg = load_target(args.loadgen)
+    sweep = {**cfg["sweep"], "levels": "4", "duration_s": 3}
+    print(f"Checking load generator: {sweep.get('loadgen', 'builtin')} (one level, up to ~1-2 min on a small VM)...")
+    with tempfile.TemporaryDirectory() as tmp, MockTarget() as mock:
+        mock.deploy(4, 128)
+        try:
+            last = run_sweep(mock, sweep, slo_ttft_ms=500, out_dir=Path(tmp))
+        except SweepError as e:
+            raise SystemExit(f"FAILED: {e}")
+    level = json.loads(last)
+    print("OK  " + "  ".join(f"{k}={level[k]}" for k in
+                             ("requests", "errors", "ttft_p50_ms", "itl_p50_ms", "output_tokens_per_s")))
+
+
 def cmd_oracle(args):
-    oracle = build_oracle(load_target(), rebuild=args.rebuild)
+    oracle = build_oracle(load_target(args.loadgen), rebuild=args.rebuild)
     print(f"Oracle has {len(oracle['configs'])} configs; saved to {oracle['path']}")
 
 
@@ -95,7 +117,7 @@ def cmd_eval(args):
         evals.SUITE_PATH = Path(args.suite).resolve()
     evals.run_suite(only=args.only.split(",") if args.only else None,
                     repeats=args.repeats, judge=args.judge or bool(args.judge_model),
-                    judge_model=args.judge_model, verbose=args.verbose)
+                    judge_model=args.judge_model, verbose=args.verbose, loadgen=args.loadgen)
 
 
 def main():
@@ -115,11 +137,18 @@ def main():
     p.add_argument("--budget", type=int, default=8, help="max deploys, failed ones included")
     p.add_argument("--objective", choices=["throughput", "throughput_per_gpu"], default="throughput")
     p.add_argument("--duration", type=float, help="seconds per sweep level (overrides target.toml)")
+    p.add_argument("--levels", help="concurrency levels, e.g. 4,16,64 (overrides target.toml)")
     p.add_argument("--runs-dir", help="where run folders go (default: runs/)")
+    p.add_argument("--loadgen", choices=BACKENDS, help="load generator (overrides target.toml)")
     p.set_defaults(fn=cmd_run)
+
+    p = sub.add_parser("check-loadgen", help="one short sweep on the mock, to verify a load generator works")
+    p.add_argument("--loadgen", choices=BACKENDS, help="load generator (default: target.toml's)")
+    p.set_defaults(fn=cmd_check_loadgen)
 
     p = sub.add_parser("oracle", help="build the brute-force answer key for evals")
     p.add_argument("--rebuild", action="store_true")
+    p.add_argument("--loadgen", choices=BACKENDS, help="load generator (overrides target.toml)")
     p.set_defaults(fn=cmd_oracle)
 
     p = sub.add_parser("eval", help="compare model line-ups")
@@ -129,6 +158,7 @@ def main():
     p.add_argument("--judge", action="store_true", help="grade report.md with the judge model")
     p.add_argument("--judge-model", help="use this model as judge instead of roles.toml's (implies --judge)")
     p.add_argument("--verbose", action="store_true", help="print every agent step")
+    p.add_argument("--loadgen", choices=BACKENDS, help="load generator (overrides target.toml and the suite)")
     p.set_defaults(fn=cmd_eval)
 
     args = ap.parse_args()

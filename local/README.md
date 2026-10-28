@@ -9,8 +9,9 @@ All commands below are run from **this folder** (`cd local`).
 - 🧠 **Bring your own models:** each agent can use a different OpenAI-compatible endpoint
 - 📊 **Evals built in:** compare model line-ups against a brute-force answer key, and get a leaderboard
 - 🛡️ **Guardrails in code:** run budget, search space and workspace limits are enforced by the tools, not the prompts
+- 📏 **Credible measurement, optional:** switch the load generator to MLCommons **MLPerf Endpoints** with one line
 - 🧪 **Runs anywhere:** a mock inference server and a scripted fake LLM let you try everything without GPUs
-- 📦 **Zero dependencies:** Python 3.11+ standard library only
+- 📦 **Zero dependencies:** Python 3.11+ standard library only (MLPerf Endpoints is an opt-in extra)
 
 ---
 
@@ -50,7 +51,7 @@ code. Change any of these in one line (see below).
 
 ```bash
 # 0. No GPUs or models needed for this step: check that everything works offline
-make test        # 13 unit tests: scoring math + guardrails
+make test        # unit tests: scoring math, guardrails, MLPerf adapter
 make smoke       # full pipeline with a scripted fake LLM (~2 min)
 
 # 1. Point the models at your endpoints
@@ -86,6 +87,7 @@ perfagents/        the code; read it in this order:
   llm.py           ~80-line client for OpenAI-compatible /chat/completions
   agent.py         the agent loop: call model → run tools → repeat
   tools.py         what agents can do + the guardrails (budget, search space)
+  sweep.py         runs a load sweep: builtin loadgen or MLPerf Endpoints, same output files
   team.py          wires planner → specialists, runs one full perf test
   target.py        mock server or real endpoint, behind one interface
   oracle.py        brute-forces every config = the eval answer key
@@ -93,7 +95,9 @@ perfagents/        the code; read it in this order:
   __main__.py      the CLI (python3 -m perfagents --help)
 bench/
   mock_server.py   simulated inference server: realistic knee, OOMs, TP overhead
-  loadgen.py       streaming load generator (works on real vLLM too)
+  loadgen.py       builtin streaming load generator (works on real vLLM too)
+  datasets/        mixed_prompts.jsonl: short chat + long-context prompts, for MLPerf Endpoints
+  mock_tokenizer/  tiny tokenizer so MLPerf Endpoints can count the mock's tokens
 evals/suite.toml   scenarios × model line-ups to compare
 tests/             unit tests, the fake LLM, and the smoke suite
 ```
@@ -191,11 +195,62 @@ a machine with credentials you care about.
 
 ---
 
+## Measuring with MLPerf Endpoints (optional)
+
+[MLPerf Endpoints](https://github.com/mlcommons/endpoints) is MLCommons' benchmark for
+serving endpoints, built with 35+ industry partners including Nutanix. It's the industry's
+"certified dyno": real datasets, a multi-process client built for 50k+ QPS, and MLPerf's
+early-stopping p99 estimates.
+
+**What changes:** only *how each config is measured*. The agents still decide what to test
+and when to stop. The adapter (`perfagents/sweep.py`) converts Endpoints' output into the
+same `summary.json` and `requests.csv` files, so prompts, guardrails and evals all work
+unchanged.
+
+```bash
+make mlperf-setup     # installs inference-endpoint into ./.venv-mlperf (Python 3.12+), pinned commit
+make mlperf-check     # one short sweep on the mock, to prove it works on this machine
+
+# use it for one run, or for evals (the oracle is then built with it too):
+python3 -m perfagents run  --loadgen mlperf-endpoints
+python3 -m perfagents eval --loadgen mlperf-endpoints
+# or make it the default: target.toml [sweep] loadgen = "mlperf-endpoints"
+```
+
+Settings live in `config/target.toml` under `[sweep.mlperf_endpoints]`:
+
+| Setting | Default | Notes |
+|---|---|---|
+| `dataset` | `bench/datasets/mixed_prompts.jsonl` | JSONL with a `prompt` field. Swap in a sample of your real traffic |
+| `tokenizer` | the target model's name | a Hugging Face repo id or local path. Endpoints counts tokens client-side (TPS, TPOT); for the mock it uses `bench/mock_tokenizer` |
+| `api_type` | `openai` | `/v1/chat/completions`. Also `openai-completions` or `sglang` |
+| `workers` | `-1` (auto) | client processes. On machines with ≤4 CPUs the adapter uses 1 and skips CPU pinning, because auto can't start there |
+| `extra_args` | `[]` | any other `inference-endpoint` flag |
+
+**What you get per level**, in addition to the usual fields:
+- `ttft_p99_early_stopping_ms`: MLPerf's conservative p99 TTFT. It's `null` when a level has
+  too few requests for a confident estimate, so use longer `duration_s` for it to appear.
+  The SLO check still uses `ttft_p99_ms`, so results stay comparable with the builtin backend.
+- `interactivity_tokens_per_s_per_user`: the per-user token rate on MLPerf's Pareto charts.
+- The raw MLPerf report of every level, kept under `results/<config>/mlperf_endpoints/c<N>/`.
+
+**Good to know:**
+- **Startup cost:** each concurrency level starts a fresh `inference-endpoint` process, about
+  30-40 s of fixed startup on a small VM. Use fewer, longer levels with this backend.
+- **Size the client host:** the client needs real CPU. On a 2-vCPU VM, high concurrency
+  starves the client and inflates TPOT; run it on a proper load-generator host near the cluster.
+- **ITL vs TPOT:** `itl_*` fields hold MLPerf's TPOT (time per output token), and
+  `requests.csv` has no per-request token counts with this backend.
+- **Not included yet:** the accuracy gate (GPQA / AIME pass@1). Endpoints supports it with
+  `--dataset acc:...`, but the datasets come from Hugging Face; it's the natural next step.
+
+---
+
 ## Testing a real NAI endpoint instead of the mock
 
 In `config/target.toml`, set `type = "command"` and fill in `[command]`:
 
-- `url`, `model`, `api_key_env`: the endpoint under test (`loadgen.py` speaks OpenAI streaming).
+- `url`, `model`, `api_key_env`: the endpoint under test (both load generators speak OpenAI streaming).
 - `deploy_command`: a shell command that redeploys with `{tp}` and `{max_batch}`
   (for example a script that patches the vLLM Deployment's args, or calls NAI's API).
 - `ready_url`: polled until it returns 200 after each deploy.
@@ -229,3 +284,6 @@ config once. That costs real GPU time, so keep the search space small.
 | many `tool_errors` for one model | its tool-call parser is wrong, or the model is weak at tool use; check the transcript |
 | `max_turn_hits` > 0 | the agent looped; read its part of `transcript.jsonl`, then tune its prompt or `max_turns` |
 | quality 0 with note "never tested" | the planner recommended a config it didn't measure (a reasoning failure) |
+| `MLCommons inference-endpoint is not installed` | run `make mlperf-setup` (needs Python 3.12+) |
+| `Workers failed to initialize` | the client host is too small; set `[sweep.mlperf_endpoints] workers = 1` |
+| MLPerf TPOT much higher than expected | the client is CPU-starved; lower concurrency or use a bigger load-generator host |
